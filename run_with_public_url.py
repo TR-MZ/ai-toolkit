@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-Start the ai-toolkit web UI with a public ngrok tunnel.
+Start the ai-toolkit web UI with a public localtunnel.
 This allows you to access the web UI from anywhere, including Google Colab.
 
 Requirements:
-  pip install pyngrok
+  npm install -g localtunnel
 
 Usage:
   python run_with_public_url.py
 
-The script will print a public URL like: https://xxxx-xxx-xxx-xxx.ngrok.io
+The script will print a public URL like: https://xxxx-xxxx-xxxx.loca.lt
 Use that URL to access the UI from Colab or anywhere else.
 """
 
@@ -18,20 +18,23 @@ import time
 import sys
 import os
 
-try:
-    from pyngrok import ngrok
-except ImportError:
-    print("❌ pyngrok not installed!")
-    print("\nInstall it with:")
-    print("  pip install pyngrok")
-    sys.exit(1)
+def check_localtunnel():
+    """Check if localtunnel is installed"""
+    result = subprocess.run(["which", "lt"], capture_output=True)
+    if result.returncode != 0:
+        print("❌ localtunnel not installed!")
+        print("\nInstall it with:")
+        print("  npm install -g localtunnel")
+        sys.exit(1)
 
 # Port where Next.js UI runs
 UI_PORT = 8675
 
 def main():
+    check_localtunnel()
+
     print(f"🚀 Starting ai-toolkit UI on port {UI_PORT}...")
-    print(f"🌐 Setting up public tunnel with ngrok...\n")
+    print(f"🌐 Setting up public tunnel with localtunnel...\n")
 
     # Start the UI in the background
     ui_process = subprocess.Popen(
@@ -44,27 +47,42 @@ def main():
     # Give the UI a moment to start
     time.sleep(5)
 
-    # Set up ngrok tunnel
+    # Start localtunnel tunnel
     try:
-        public_url = ngrok.connect(UI_PORT, "http")
-        print("✅ Public tunnel created!")
-        print(f"\n{'='*60}")
-        print(f"🔗 PUBLIC URL (use this to access from Colab):")
-        print(f"   {public_url}")
-        print(f"{'='*60}\n")
-        print(f"Local:  http://localhost:{UI_PORT}")
-        print(f"Public: {public_url}\n")
-        print("Press Ctrl+C to stop the server and tunnel\n")
+        print(f"Creating tunnel to localhost:{UI_PORT}...\n")
+        tunnel_process = subprocess.Popen(
+            ["lt", "--port", str(UI_PORT), "--local-host", "127.0.0.1"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1
+        )
 
-        # Keep the process alive
-        ui_process.wait()
+        # Read the tunnel URL from output
+        url_found = False
+        for line in tunnel_process.stdout:
+            print(line.strip())
+            if "your url is:" in line.lower() or ".loca.lt" in line:
+                if not url_found:
+                    print(f"\n{'='*60}")
+                    print(f"✅ Public tunnel created!")
+                    print(f"{'='*60}\n")
+                    print(f"Local:  http://localhost:{UI_PORT}")
+                    print(f"Public: {line.strip()}\n")
+                    print("Press Ctrl+C to stop the server and tunnel\n")
+                    url_found = True
+
+        # Keep processes alive
+        tunnel_process.wait()
+
+    except KeyboardInterrupt:
+        print("\n⏹️  Stopping server...")
+        tunnel_process.terminate()
+        ui_process.terminate()
     except Exception as e:
-        print(f"❌ Error setting up ngrok: {e}")
+        print(f"❌ Error: {e}")
         ui_process.terminate()
         sys.exit(1)
-    finally:
-        ngrok.kill()
-        ui_process.terminate()
 
 if __name__ == "__main__":
     main()
