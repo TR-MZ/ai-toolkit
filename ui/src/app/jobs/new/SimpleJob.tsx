@@ -219,6 +219,20 @@ export default function SimpleJob({
                 placeholder=""
               />
             )}
+            {modelArch?.additionalSections?.includes('model.vae_path') && (
+              <TextInput
+                label="Custom VAE Path"
+                value={jobConfig.config.process[0].model.vae_path ?? ''}
+                docKey="config.process[0].model.vae_path"
+                onChange={(value: string | undefined) => {
+                  if (value?.trim() === '') {
+                    value = undefined;
+                  }
+                  setJobConfig(value, 'config.process[0].model.vae_path');
+                }}
+                placeholder="Path to a diffusers-format RGBA VAE (optional)"
+              />
+            )}
             {modelArch?.additionalSections?.includes('model.low_vram') && (
               <FormGroup label="Options">
                 <Checkbox

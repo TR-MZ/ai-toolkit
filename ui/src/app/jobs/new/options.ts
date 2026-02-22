@@ -27,7 +27,8 @@ type AdditionalSections =
   | 'model.layer_offloading'
   | 'model.low_vram'
   | 'model.qie.match_target_res'
-  | 'model.assistant_lora_path';
+  | 'model.assistant_lora_path'
+  | 'model.vae_path';
 type ModelGroup = 'image' | 'instruction' | 'video';
 
 export interface ModelArch {
@@ -659,6 +660,7 @@ export const modelArchs: ModelArch[] = [
       'model.low_vram',
       'model.layer_offloading',
       'model.qie.match_target_res',
+      'model.vae_path',
     ],
   },
   {
@@ -690,6 +692,7 @@ export const modelArchs: ModelArch[] = [
       'model.low_vram',
       'model.layer_offloading',
       'model.qie.match_target_res',
+      'model.vae_path',
     ],
   },
 ].sort((a, b) => {

@@ -1575,7 +1575,12 @@ class BaseSDTrainProcess(BaseTrainProcess):
         self.hook_after_sd_init_before_load()
         # run base sd process run
         self.sd.load_model()
-        
+
+        # propagate RGBA mode from model to datasets
+        if getattr(self.sd, 'is_rgba_vae', False):
+            for dataset_config in self.dataset_configs:
+                dataset_config.rgba = True
+
         # compile the model if needed
         if self.model_config.compile:
             try:

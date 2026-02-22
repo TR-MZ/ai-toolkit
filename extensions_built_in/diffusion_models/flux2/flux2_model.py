@@ -22,8 +22,10 @@ from transformers import AutoProcessor, Mistral3ForConditionalGeneration
 from .src.model import Flux2, Flux2Params
 from .src.pipeline import Flux2Pipeline
 from .src.autoencoder import AutoEncoder, AutoEncoderParams
+from .src.vae_adapter import DiffusersVAEAdapter
 from safetensors.torch import load_file, save_file
 from PIL import Image
+import numpy as np
 import torch.nn.functional as F
 
 if TYPE_CHECKING:
@@ -184,32 +186,47 @@ class Flux2Model(BaseModel):
         text_encoder, tokenizer = self.load_te()
 
         self.print_and_status_update("Loading VAE")
+        self.is_rgba_vae = False
         vae_path = self.model_config.vae_path
 
-        if os.path.exists(os.path.join(model_path, FLUX2_VAE_FILENAME)):
-            vae_path = os.path.join(model_path, FLUX2_VAE_FILENAME)
+        # Check if vae_path points to a diffusers-format VAE directory
+        if vae_path is not None and os.path.isdir(vae_path) and os.path.exists(
+            os.path.join(vae_path, "config.json")
+        ):
+            from diffusers import AutoencoderKLFlux2
 
-        if vae_path is None:
-            vae_path = self.flux2_vae_path
-
-        if vae_path is None or not os.path.exists(vae_path):
-            p = vae_path if vae_path is not None else model_path
-            # assume it is from the hub
-            vae_path = huggingface_hub.hf_hub_download(
-                repo_id=p,
-                filename=FLUX2_VAE_FILENAME,
-                token=HF_TOKEN,
+            self.print_and_status_update("Loading diffusers VAE from " + vae_path)
+            diffusers_vae = AutoencoderKLFlux2.from_pretrained(
+                vae_path, torch_dtype=dtype
             )
-        with torch.device("meta"):
-            vae = AutoEncoder(AutoEncoderParams())
+            vae = DiffusersVAEAdapter(diffusers_vae)
+            if vae.num_output_channels == 4:
+                self.is_rgba_vae = True
+        else:
+            if os.path.exists(os.path.join(model_path, FLUX2_VAE_FILENAME)):
+                vae_path = os.path.join(model_path, FLUX2_VAE_FILENAME)
 
-        vae_state_dict = load_file(vae_path, device="cpu")
+            if vae_path is None:
+                vae_path = self.flux2_vae_path
 
-        # cast to dtype
-        for key in vae_state_dict:
-            vae_state_dict[key] = vae_state_dict[key].to(dtype)
+            if vae_path is None or not os.path.exists(vae_path):
+                p = vae_path if vae_path is not None else model_path
+                # assume it is from the hub
+                vae_path = huggingface_hub.hf_hub_download(
+                    repo_id=p,
+                    filename=FLUX2_VAE_FILENAME,
+                    token=HF_TOKEN,
+                )
+            with torch.device("meta"):
+                vae = AutoEncoder(AutoEncoderParams())
 
-        vae.load_state_dict(vae_state_dict, assign=True)
+            vae_state_dict = load_file(vae_path, device="cpu")
+
+            # cast to dtype
+            for key in vae_state_dict:
+                vae_state_dict[key] = vae_state_dict[key].to(dtype)
+
+            vae.load_state_dict(vae_state_dict, assign=True)
 
         self.noise_scheduler = Flux2Model.get_train_scheduler()
 
@@ -281,38 +298,61 @@ class Flux2Model(BaseModel):
             gen_config.height // self.get_bucket_divisibility()
         ) * self.get_bucket_divisibility()
 
+        ctrl_img_mode = "RGBA" if self.is_rgba_vae else "RGB"
         control_img_list = []
         if gen_config.ctrl_img is not None:
             control_img = Image.open(gen_config.ctrl_img)
-            control_img = control_img.convert("RGB")
+            control_img = control_img.convert(ctrl_img_mode)
             control_img_list.append(control_img)
         elif gen_config.ctrl_img_1 is not None:
             control_img = Image.open(gen_config.ctrl_img_1)
-            control_img = control_img.convert("RGB")
+            control_img = control_img.convert(ctrl_img_mode)
             control_img_list.append(control_img)
         if gen_config.ctrl_img_2 is not None:
             control_img = Image.open(gen_config.ctrl_img_2)
-            control_img = control_img.convert("RGB")
+            control_img = control_img.convert(ctrl_img_mode)
             control_img_list.append(control_img)
         if gen_config.ctrl_img_3 is not None:
             control_img = Image.open(gen_config.ctrl_img_3)
-            control_img = control_img.convert("RGB")
+            control_img = control_img.convert(ctrl_img_mode)
             control_img_list.append(control_img)
 
         if not self.flux2_is_guidance_distilled:
             extra["negative_prompt_embeds"] = unconditional_embeds.text_embeds
 
-        img = pipeline(
-            prompt_embeds=conditional_embeds.text_embeds,
-            height=gen_config.height,
-            width=gen_config.width,
-            num_inference_steps=gen_config.num_inference_steps,
-            guidance_scale=gen_config.guidance_scale,
-            latents=gen_config.latents,
-            generator=generator,
-            control_img_list=control_img_list,
-            **extra,
-        ).images[0]
+        if self.is_rgba_vae:
+            # For RGBA VAE, get raw latents and decode manually
+            result = pipeline(
+                prompt_embeds=conditional_embeds.text_embeds,
+                height=gen_config.height,
+                width=gen_config.width,
+                num_inference_steps=gen_config.num_inference_steps,
+                guidance_scale=gen_config.guidance_scale,
+                latents=gen_config.latents,
+                generator=generator,
+                control_img_list=control_img_list,
+                output_type="latent",
+                **extra,
+            )
+            latents = result.images.to(device=self.device_torch, dtype=self.torch_dtype)
+            with torch.no_grad():
+                decoded = self.vae.decode(latents).float()
+            decoded = (decoded + 1.0) / 2.0
+            decoded = decoded.clamp(0, 1)
+            img_np = (decoded[0].permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8)
+            img = Image.fromarray(img_np, mode="RGBA")
+        else:
+            img = pipeline(
+                prompt_embeds=conditional_embeds.text_embeds,
+                height=gen_config.height,
+                width=gen_config.width,
+                num_inference_steps=gen_config.num_inference_steps,
+                guidance_scale=gen_config.guidance_scale,
+                latents=gen_config.latents,
+                generator=generator,
+                control_img_list=control_img_list,
+                **extra,
+            ).images[0]
         return img
 
     def get_noise_prediction(

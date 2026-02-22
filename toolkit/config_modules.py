@@ -897,6 +897,7 @@ class DatasetConfig:
         # instead of cropping ot match image, it will serve the full size control image (clip images ie for ip adapters)
         self.full_size_control_images: bool = kwargs.get('full_size_control_images', True)
         self.alpha_mask: bool = kwargs.get('alpha_mask', False)  # if true, will use alpha channel as mask
+        self.rgba: bool = kwargs.get('rgba', False)  # if true, load images as RGBA (4-channel)
         self.mask_path: str = kwargs.get('mask_path',
                                          None)  # focus mask (black and white. White has higher loss than black)
         self.unconditional_path: str = kwargs.get('unconditional_path',
@@ -1177,6 +1178,9 @@ class GenerateImageConfig:
             )
         else:
             # TODO save image gen header info for A1111 and us, our seeds probably wont match
+            # Force PNG for RGBA images since formats like JPEG don't support alpha
+            if hasattr(image, 'mode') and image.mode == 'RGBA' and self.output_ext in ('jpg', 'jpeg'):
+                self.output_ext = 'png'
             image.save(self.get_image_path(count, max_count))
             # do prompt file
             if self.add_prompt_file:

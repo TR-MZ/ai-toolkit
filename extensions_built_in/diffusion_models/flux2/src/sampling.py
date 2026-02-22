@@ -263,6 +263,9 @@ def to_rgb(
         ]
     if isinstance(img, torch.Tensor):
         return img  # assume already in tensor format
+    # Preserve RGBA mode if already converted (e.g. for RGBA VAE)
+    if img.mode == "RGBA":
+        return img
     return img.convert("RGB")
 
 

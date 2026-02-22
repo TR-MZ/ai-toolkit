@@ -40,6 +40,43 @@ if TYPE_CHECKING:
     from toolkit.data_transfer_object.data_loader import FileItemDTO
     from toolkit.stable_diffusion_model import StableDiffusion
 
+
+def alpha_bleed(img: Image.Image, iterations: int = 16) -> Image.Image:
+    """Bleed RGB colors from opaque pixels into transparent areas.
+
+    This prevents the model from learning arbitrary (usually black) RGB values
+    in fully transparent regions, which causes color fringing artifacts.
+    Uses iterative dilation: each pass spreads color from opaque neighbors
+    into adjacent transparent pixels.
+    """
+    arr = np.array(img)  # (H, W, 4) uint8
+    rgb = arr[:, :, :3].astype(np.float32)
+    alpha = arr[:, :, 3].astype(np.float32)
+
+    # Mask of pixels that already have color info (alpha > 0)
+    filled = (alpha > 0).astype(np.float32)
+    kernel = np.ones((3, 3), dtype=np.float32)
+
+    for _ in range(iterations):
+        # Weight each RGB channel by the filled mask
+        weighted_r = cv2.filter2D(rgb[:, :, 0] * filled, -1, kernel)
+        weighted_g = cv2.filter2D(rgb[:, :, 1] * filled, -1, kernel)
+        weighted_b = cv2.filter2D(rgb[:, :, 2] * filled, -1, kernel)
+        neighbor_count = cv2.filter2D(filled, -1, kernel)
+
+        # Only fill pixels that are currently empty but have filled neighbors
+        expand_mask = (filled == 0) & (neighbor_count > 0)
+        if not np.any(expand_mask):
+            break
+
+        rgb[expand_mask, 0] = weighted_r[expand_mask] / neighbor_count[expand_mask]
+        rgb[expand_mask, 1] = weighted_g[expand_mask] / neighbor_count[expand_mask]
+        rgb[expand_mask, 2] = weighted_b[expand_mask] / neighbor_count[expand_mask]
+        filled[expand_mask] = 1.0
+
+    arr[:, :, :3] = np.clip(rgb, 0, 255).astype(np.uint8)
+    return Image.fromarray(arr, mode="RGBA")
+
 accelerator = get_accelerator()
 
 # def get_associated_caption_from_img_path(img_path):
@@ -760,7 +797,12 @@ class ImageProcessingDTOMixin:
             np_img = np_img[:, :, :3]
             img = Image.fromarray(np_img)
 
-        img = img.convert('RGB')
+        if self.dataset_config.rgba:
+            # Load as RGBA for transparent image training
+            img = img.convert('RGBA')
+            img = alpha_bleed(img)
+        else:
+            img = img.convert('RGB')
         w, h = img.size
         if w > h and self.scale_to_width < self.scale_to_height:
             # throw error, they should match
@@ -973,7 +1015,11 @@ class ControlFileItemDTOMixin:
                 img = Image.open(control_path)
                 img = exif_transpose(img)
 
-                if img.mode in ("RGBA", "LA"):
+                if self.dataset_config.rgba:
+                    # RGBA mode: keep all 4 channels for the RGBA VAE
+                    img = img.convert("RGBA")
+                    img = alpha_bleed(img)
+                elif img.mode in ("RGBA", "LA"):
                     # Create a background with the specified transparent color
                     transparent_color = tuple(self.dataset_config.control_transparent_color)
                     background = Image.new("RGB", img.size, transparent_color)
