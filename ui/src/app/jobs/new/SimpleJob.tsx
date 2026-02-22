@@ -756,64 +756,65 @@ export default function SimpleJob({
                   <h2 className="text-lg font-bold mb-4">Dataset {i + 1}</h2>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                     <div>
-                      <SelectInput
+                      <TextInput
                         label="Target Dataset"
                         value={dataset.folder_path}
                         onChange={value => setJobConfig(value, `config.process[0].datasets[${i}].folder_path`)}
-                        options={datasetOptions}
+                        placeholder="e.g., /content/datasets/dataset1 or datasets/my_dataset"
+                        required
                       />
                       {modelArch?.additionalSections?.includes('datasets.control_path') && (
-                        <SelectInput
-                          label="Control Dataset"
+                        <TextInput
+                          label="Control Dataset (optional)"
                           docKey="datasets.control_path"
                           value={dataset.control_path ?? ''}
                           className="pt-2"
                           onChange={value =>
-                            setJobConfig(value == '' ? null : value, `config.process[0].datasets[${i}].control_path`)
+                            setJobConfig(value?.trim() === '' ? null : value, `config.process[0].datasets[${i}].control_path`)
                           }
-                          options={[{ value: '', label: <>&nbsp;</> }, ...datasetOptions]}
+                          placeholder="e.g., datasets/control_images (leave empty to skip)"
                         />
                       )}
                       {modelArch?.additionalSections?.includes('datasets.multi_control_paths') && (
                         <>
-                          <SelectInput
-                            label="Control Dataset 1"
+                          <TextInput
+                            label="Control Dataset 1 (optional)"
                             docKey="datasets.multi_control_paths"
                             value={dataset.control_path_1 ?? ''}
                             className="pt-2"
                             onChange={value =>
                               setJobConfig(
-                                value == '' ? null : value,
+                                value?.trim() === '' ? null : value,
                                 `config.process[0].datasets[${i}].control_path_1`,
                               )
                             }
-                            options={[{ value: '', label: <>&nbsp;</> }, ...datasetOptions]}
+                            placeholder="e.g., datasets/control1"
                           />
-                          <SelectInput
-                            label="Control Dataset 2"
+                          <TextInput
+                            label="Control Dataset 2 (optional)"
                             docKey="datasets.multi_control_paths"
                             value={dataset.control_path_2 ?? ''}
                             className="pt-2"
                             onChange={value =>
                               setJobConfig(
-                                value == '' ? null : value,
+                                value?.trim() === '' ? null : value,
                                 `config.process[0].datasets[${i}].control_path_2`,
                               )
                             }
-                            options={[{ value: '', label: <>&nbsp;</> }, ...datasetOptions]}
+                            placeholder="e.g., datasets/control2"
                           />
-                          <SelectInput
-                            label="Control Dataset 3"
+                          <TextInput
+                            label="Control Dataset 3 (optional)"
                             docKey="datasets.multi_control_paths"
                             value={dataset.control_path_3 ?? ''}
                             className="pt-2"
                             onChange={value =>
                               setJobConfig(
-                                value == '' ? null : value,
+                                value?.trim() === '' ? null : value,
                                 `config.process[0].datasets[${i}].control_path_3`,
                               )
                             }
-                            options={[{ value: '', label: <>&nbsp;</> }, ...datasetOptions]}
+                            placeholder="e.g., datasets/control3"
                           />
                         </>
                       )}
